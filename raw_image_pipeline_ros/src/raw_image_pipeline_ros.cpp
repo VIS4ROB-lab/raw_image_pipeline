@@ -9,39 +9,28 @@
 namespace raw_image_pipeline {
 
 RawImagePipelineRos::RawImagePipelineRos(
-    const rclcpp::Node::SharedPtr& nh,
-    const rclcpp::Node::SharedPtr& nh_private)
-    : nh_(nh),
-      nh_private_(nh_private),
-      // spinner_(1),
-      image_transport_(nh_),
+    const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
+    : Node("raw_image_pipeline_ros", options),
       skipped_images_for_slow_topic_(0),
       skipped_images_for_slow_topic_rect_(0) {
-  // Setup
-  // ROS2HACK
-  // google::InstallFailureSignalHandler();
-
-  // Load ROS params and initialize
-  loadParams();
-
-  // Setup publishers
-  setupRos();
+  one_off_timer_ =
+      this->create_wall_timer(std::chrono::milliseconds(1), [this]() {
+        loadParams();
+        setupRos();
+        one_off_timer_->cancel();
+      });
 }
 
 RawImagePipelineRos::~RawImagePipelineRos() {}
-
-bool RawImagePipelineRos::run() {
-  RCLCPP_INFO_STREAM(nh_->get_logger(), "[RawImagePipelineRos] Starting...");
-  rclcpp::spin(nh_);
-  // spinner_.start();
-  return true;
-}
 
 void RawImagePipelineRos::loadParams() {
   // Topic options
   readRequiredParameter("input_topic", input_topic_);
   readRequiredParameter("input_type", input_type_);
   readRequiredParameter("output_prefix", output_prefix_);
+
+  image_transport_ =
+      std::make_shared<image_transport::ImageTransport>(shared_from_this());
 
   // Get transport hint
   transport_ = getTransportHintFromTopic(input_topic_);
@@ -246,10 +235,10 @@ void RawImagePipelineRos::setupRos() {
   // std::bind(&RawImagePipelineRos::imageCallback, this, _1);
 
   auto transport_hint =
-      std::make_shared<image_transport::TransportHints>(nh_.get(), transport_);
+      std::make_shared<image_transport::TransportHints>(this, transport_);
 
   // Subscribe image
-  sub_raw_image_ = image_transport_.subscribe(
+  sub_raw_image_ = image_transport_->subscribe(
       input_topic_,                               // topic
       ros_queue_size,                             // queue size
       &RawImagePipelineRos::imageCallback, this,  // callback
@@ -258,30 +247,41 @@ void RawImagePipelineRos::setupRos() {
 
   // Set up the processed image publisher.
   if (raw_image_pipeline_->isUndistortionEnabled()) {
-    pub_image_rect_ = image_transport_.advertiseCamera(
+    pub_image_rect_ = image_transport_->advertiseCamera(
         output_prefix_ + "/" + input_type_ + "_rect/image", ros_queue_size);
-    // pub_image_rect_mask_ = image_transport_.advertise(output_prefix_ +
-    // "/image_mask", ros_queue_size);
-    pub_image_rect_slow_ = image_transport_.advertise(
-        output_prefix_ + "/" + input_type_ + "_rect/image/slow",
-        ros_queue_size);
+    if (skip_number_of_images_for_slow_topic_ > 0) {
+      pub_image_rect_slow_ = image_transport_->advertise(
+          output_prefix_ + "/" + input_type_ + "_rect/image/slow",
+          ros_queue_size);
+    }
   }
 
-  if (input_type_ == "color") {
-    pub_image_debayered_ = image_transport_.advertiseCamera(
+  if (raw_image_pipeline_->isDebayerEnabled()) {
+    pub_image_debayered_ = image_transport_->advertiseCamera(
         output_prefix_ + "/debayered/image", ros_queue_size);
-    pub_image_debayered_slow_ = image_transport_.advertise(
-        output_prefix_ + "/debayered/slow", ros_queue_size);
+    if (skip_number_of_images_for_slow_topic_ > 0) {
+      pub_image_debayered_slow_ = image_transport_->advertise(
+          output_prefix_ + "/debayered/slow", ros_queue_size);
+    }
+  }
 
-    pub_image_color_ = image_transport_.advertiseCamera(
+  if (raw_image_pipeline_->isFlipEnabled() ||
+      raw_image_pipeline_->isWhiteBalanceEnabled() ||
+      raw_image_pipeline_->isColorCalibrationEnabled() ||
+      raw_image_pipeline_->isGammaCorrectionEnabled() ||
+      raw_image_pipeline_->isVignettingCorrectionEnabled() ||
+      raw_image_pipeline_->isColorEnhancerEnabled()) {
+    pub_image_color_ = image_transport_->advertiseCamera(
         output_prefix_ + "/color/image", ros_queue_size);
-    pub_image_color_slow_ = image_transport_.advertise(
-        output_prefix_ + "/color/slow", ros_queue_size);
+    if (skip_number_of_images_for_slow_topic_ > 0) {
+      pub_image_color_slow_ = image_transport_->advertise(
+          output_prefix_ + "/color/slow", ros_queue_size);
+    }
   }
 
   // Setup service calls
   // reset_wb_temporal_consistency_server_ =
-  //     nh_private_.advertiseService("reset_white_balance",
+  //     this.advertiseService("reset_white_balance",
   //     &RawImagePipelineRos::resetWhiteBalanceHandler, this);
 }  // namespace raw_image_pipeline
 
@@ -311,7 +311,7 @@ void RawImagePipelineRos::imageCallback(
   // CHECK_NOTNULL(cv_ptr_processed);
 
   if (cv_ptr_processed->image.empty()) {
-    RCLCPP_WARN(nh_->get_logger(), "image empty");
+    RCLCPP_WARN(this->get_logger(), "image empty");
     return;
   }
 
@@ -323,9 +323,8 @@ void RawImagePipelineRos::imageCallback(
   if (raw_image_pipeline_->isUndistortionEnabled() && rect_subs) {
     // Publish undistorted
     publishColorImage(
-        cv_ptr_processed,                    // Processed
-        image_msg,                           // Original image
-        raw_image_pipeline_->getRectMask(),  // Mask
+        cv_ptr_processed,  // Processed
+        image_msg,         // Original image
         raw_image_pipeline_->getRectImageHeight(),
         raw_image_pipeline_->getRectImageWidth(),  // Dimensions
         raw_image_pipeline_->getRectDistortionModel(),
@@ -340,65 +339,50 @@ void RawImagePipelineRos::imageCallback(
     );
   }
 
-  if (input_type_ == "color") {
-    if (debayer_subs) {
-      // Publish debayered image
-      cv_ptr_processed->image = raw_image_pipeline_->getDistDebayeredImage();
-      publishColorImage(
-          cv_ptr_processed,  // Processed
-          image_msg,         // Original image
-          cv::Mat(),         // Mask
-          raw_image_pipeline_->getDistImageHeight(),
-          raw_image_pipeline_->getDistImageWidth(),  // Dimensions
-          raw_image_pipeline_->getDistDistortionModel(),
-          raw_image_pipeline_
-              ->getDistDistortionCoefficients(),  // Distortion stuff
-          raw_image_pipeline_->getDistCameraMatrix(),
-          raw_image_pipeline_->getDistRectificationMatrix(),
-          raw_image_pipeline_->getDistProjectionMatrix(),   // Pinhole stuff
-          pub_image_debayered_, pub_image_debayered_slow_,  // Publishers
-          skipped_images_for_slow_topic_  // Counter to keep track of the
-                                          // skipped images
-      );
-    }
+  if (debayer_subs) {
+    // Publish debayered image
+    cv_ptr_processed->image = raw_image_pipeline_->getDistDebayeredImage();
+    publishColorImage(
+        cv_ptr_processed,  // Processed
+        image_msg,         // Original image
+        raw_image_pipeline_->getDistImageHeight(),
+        raw_image_pipeline_->getDistImageWidth(),  // Dimensions
+        raw_image_pipeline_->getDistDistortionModel(),
+        raw_image_pipeline_
+            ->getDistDistortionCoefficients(),  // Distortion stuff
+        raw_image_pipeline_->getDistCameraMatrix(),
+        raw_image_pipeline_->getDistRectificationMatrix(),
+        raw_image_pipeline_->getDistProjectionMatrix(),   // Pinhole stuff
+        pub_image_debayered_, pub_image_debayered_slow_,  // Publishers
+        skipped_images_for_slow_topic_  // Counter to keep track of the
+                                        // skipped images
+    );
+  }
 
-    if (colour_subs) {
-      // Publish color image
-      cv_ptr_processed->image = raw_image_pipeline_->getDistColorImage();
-      publishColorImage(
-          cv_ptr_processed,  // Processed
-          image_msg,         // Original image
-          cv::Mat(),         // Mask
-          raw_image_pipeline_->getDistImageHeight(),
-          raw_image_pipeline_->getDistImageWidth(),  // Dimensions
-          raw_image_pipeline_->getDistDistortionModel(),
-          raw_image_pipeline_
-              ->getDistDistortionCoefficients(),  // Distortion stuff
-          raw_image_pipeline_->getDistCameraMatrix(),
-          raw_image_pipeline_->getDistRectificationMatrix(),
-          raw_image_pipeline_->getDistProjectionMatrix(),  // Pinhole stuff
-          pub_image_color_, pub_image_color_slow_,         // Publishers
-          skipped_images_for_slow_topic_  // Counter to keep track of the
-                                          // skipped images
-      );
-    }
+  if (colour_subs) {
+    // Publish color image
+    cv_ptr_processed->image = raw_image_pipeline_->getDistColorImage();
+    publishColorImage(
+        cv_ptr_processed,  // Processed
+        image_msg,         // Original image
+        raw_image_pipeline_->getDistImageHeight(),
+        raw_image_pipeline_->getDistImageWidth(),  // Dimensions
+        raw_image_pipeline_->getDistDistortionModel(),
+        raw_image_pipeline_
+            ->getDistDistortionCoefficients(),  // Distortion stuff
+        raw_image_pipeline_->getDistCameraMatrix(),
+        raw_image_pipeline_->getDistRectificationMatrix(),
+        raw_image_pipeline_->getDistProjectionMatrix(),  // Pinhole stuff
+        pub_image_color_, pub_image_color_slow_,         // Publishers
+        skipped_images_for_slow_topic_  // Counter to keep track of the
+                                        // skipped images
+    );
   }
 }
-
-/*
-bool RawImagePipelineRos::resetWhiteBalanceHandler(std_srvs::Trigger::Request&
-req, std_srvs::Trigger::Response& res) {
-  raw_image_pipeline_->resetWhiteBalanceTemporalConsistency();
-  res.success = true;
-  res.message = "White balance resetted";
-  return true;
-}
-*/
 
 void RawImagePipelineRos::publishColorImage(
     const cv_bridge::CvImagePtr& cv_ptr_processed,              //
     const sensor_msgs::msg::Image::ConstSharedPtr& orig_image,  //
-    const cv::Mat& mask,                                        // Mask
     int image_height, int image_width,                          // Dimensions
     const std::string& distortion_model,
     const cv::Mat& distortion_coefficients,  //
@@ -429,7 +413,7 @@ void RawImagePipelineRos::publishColorImage(
     else if (output_encoding_ == "BGR")
       color_img_msg->encoding = sensor_msgs::image_encodings::BGR8;
     else
-      RCLCPP_ERROR_STREAM(nh_->get_logger(),
+      RCLCPP_ERROR_STREAM(this->get_logger(),
                           "Found invalid image encoding: "
                               << output_encoding_
                               << ", make sure to set a supported ouput "
@@ -469,8 +453,8 @@ void RawImagePipelineRos::publishColorImage(
   camera_publisher.publish(color_img_msg, color_camera_info_msg);
 
   // Publish to slow topic
-  if (skipped_images >= skip_number_of_images_for_slow_topic_ ||
-      skip_number_of_images_for_slow_topic_ <= 0) {
+  if (skipped_images >= skip_number_of_images_for_slow_topic_ &&
+      skip_number_of_images_for_slow_topic_ > 0) {
     slow_publisher.publish(color_img_msg);
     skipped_images = 0;
   } else {
@@ -499,19 +483,23 @@ std::string RawImagePipelineRos::getTransportHintFromTopic(
 
 std::vector<double> RawImagePipelineRos::readParameter(
     const std::string& param, std::vector<double> default_value) {
-  nh_private_->declare_parameter(param, default_value);
+  this->declare_parameter(param, default_value);
 
   std::stringstream ss;  // Prepare default string
   for (auto v : default_value) {
     ss << v << " ";
   }
   std::vector<double> value;
-  if (!nh_private_->get_parameter(param, value)) {
-    RCLCPP_WARN_STREAM(nh_->get_logger(), "could not get ["
-                                              << param << "], using default "
-                                              << ss.str());
+  if (!this->get_parameter(param, value)) {
+    RCLCPP_WARN_STREAM(this->get_logger(), "could not get ["
+                                               << param << "], using default "
+                                               << ss.str());
   }
   return value;
 }
 
 }  // namespace raw_image_pipeline
+
+#include "rclcpp_components/register_node_macro.hpp"
+
+RCLCPP_COMPONENTS_REGISTER_NODE(raw_image_pipeline::RawImagePipelineRos)

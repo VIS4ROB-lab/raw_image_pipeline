@@ -53,37 +53,6 @@
   <arg name="undistortion/balance"                 default="0.5"/> <!-- Balance [0,1] -->
   <arg name="undistortion/fov_scale"               default="1.2"/> <!-- scale > 1.0 increases the FoV -->
   <arg name="undistortion/calibration_file"       default="$(find-pkg-share raw_image_pipeline)/config/alphasense_calib_example.yaml"/>
-  
-  <!-- Disable Image Transport plugins -->
-  <!-- ROS2Hack-->
-  <!--   
-  <group if="$(var disable_compression_plugins)" ns="$(var output_prefix)">
-    <rosparam param="debayered/image/disable_pub_plugins">
-      - 'image_transport/compressedDepth'
-      - 'image_transport/theora'
-    </rosparam>
-    <rosparam param="debayered/slow/disable_pub_plugins">
-      - 'image_transport/compressedDepth'
-      - 'image_transport/theora'
-    </rosparam>
-    <rosparam param="$(var input_type)/image/disable_pub_plugins">
-      - 'image_transport/compressedDepth'
-      - 'image_transport/theora'
-    </rosparam>
-    <rosparam param="$(var input_type)/slow/disable_pub_plugins">
-      - 'image_transport/compressedDepth'
-      - 'image_transport/theora'
-    </rosparam>
-    <rosparam param="$(var input_type)_rect/image/disable_pub_plugins">
-      - 'image_transport/compressedDepth'
-      - 'image_transport/theora'
-    </rosparam>
-    <rosparam param="$(var input_type)_rect/slow/disable_pub_plugins">
-      - 'image_transport/compressedDepth'
-      - 'image_transport/theora'
-    </rosparam>
-  </group>
-  -->
 
   <!-- Nodes -->
   <node name="raw_image_pipeline_ros_node_$(var camera_name)" exec="raw_image_pipeline_ros_node" pkg="raw_image_pipeline_ros" output="screen" launch-prefix="$(var launch_prefix)">

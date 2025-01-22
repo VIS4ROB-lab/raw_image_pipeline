@@ -14,75 +14,46 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+find_package(ament_cmake_auto REQUIRED)
+ament_auto_find_build_dependencies()
+
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(cv_bridge REQUIRED)
-# find_package(glog_catkin REQUIRED)
 find_package(image_transport REQUIRED)
-#find_package(nodelet REQUIRED)
 find_package(raw_image_pipeline REQUIRED)
 find_package(yaml-cpp REQUIRED)
-
 find_package(Eigen3 REQUIRED)
-message("Eigen Version:" ${EIGEN3_VERSION_STRING})
-message("Eigen Path:" ${Eigen3_DIR})
-
 find_package(OpenCV REQUIRED)
-message("OpenCV version: ${OpenCV_Version}")
-message("OpenCV path: ${OpenCV_DIR}")
 
-include_directories(
-  include
-  SYSTEM ${EIGEN3_INCLUDE_DIR}
-  SYSTEM ${OpenCV_INCLUDE_DIRS}
-)
+ament_auto_add_library(${PROJECT_NAME} SHARED src/raw_image_pipeline_ros.cpp)
+target_include_directories(${PROJECT_NAME} PRIVATE ${PYTHON_INCLUDE_DIRS})
 
-add_library(${PROJECT_NAME} SHARED
-    src/raw_image_pipeline_ros.cpp
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
 )
+target_link_libraries(${PROJECT_NAME} ${PYTHON_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenCV_LIBS} yaml-cpp)
+
 ament_target_dependencies(${PROJECT_NAME}
   cv_bridge
   image_transport
   OpenCV
   raw_image_pipeline
-)
-target_link_libraries(${PROJECT_NAME} yaml-cpp)
-
-# ROS2HACK
-# add_library(${PROJECT_NAME}_nodelet
-#     src/raw_image_pipeline_ros_nodelet.cpp
-# )
-# target_link_libraries(${PROJECT_NAME}_nodelet
-#     ${PROJECT_NAME}
-# )
-
-add_executable(${PROJECT_NAME}_node
-    src/raw_image_pipeline_ros_node.cpp
-)
-target_link_libraries(${PROJECT_NAME}_node
-    ${PROJECT_NAME}
+  rclcpp
+  rclcpp_components
 )
 
-
-install(TARGETS ${PROJECT_NAME}
-  DESTINATION lib
+rclcpp_components_register_node(${PROJECT_NAME}
+PLUGIN "raw_image_pipeline::RawImagePipelineRos"
+EXECUTABLE ${PROJECT_NAME}_node
 )
 
-install(TARGETS ${PROJECT_NAME}_node # ${PROJECT_NAME}_nodelet 
-  DESTINATION lib/${PROJECT_NAME}
+ament_auto_package(INSTALL_TO_SHARE
+config
+launch
 )
-
-## Mark cpp header files for installation
-install(DIRECTORY include/
-  DESTINATION include
-  FILES_MATCHING PATTERN "*.hpp"
-)
-
-install(DIRECTORY config launch 
-        DESTINATION share/${PROJECT_NAME})
-
-ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME} ${PROJECT_NAME}_nodelet)
-ament_export_dependencies(Eigen3 OpenCV)
-
-ament_package()
-

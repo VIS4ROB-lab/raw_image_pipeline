@@ -1,0 +1,112 @@
+<?xml version="1.0" ?>
+<launch>
+  <!-- General options-->
+  <arg name="container_name"                       default="default_container"/>
+  <arg name="use_sim_time"                         default="true"/>
+
+  <arg name="camera_name"                          default="cam0"/>
+  <arg name="input_topic"                          default="alphasense_driver_ros/cam0"/>
+  <arg name="input_type"                           default="color"/>
+
+  <arg name="output_prefix"                       default="alphasense_driver_ros/cam0"/>
+  <arg name="output_frame"                         default="cam0_sensor_frame_helper"/>
+  
+  <arg name="launch_prefix"                        default=""/>
+  
+  <arg name="output_encoding"                      default="BGR"/>   <!-- Format of the published image BGR and RGB supported-->
+  <arg name="skip_number_of_images_for_slow_topic" default="5"/>     <!-- To publish images at a slower rate -->
+  <arg name="use_gpu"                              default="false"/>     <!-- To publish images at a slower rate -->
+  <arg name="debug"                                default="false"/> <!-- to export debug data to /tmp -->
+
+  <arg name="disable_compression_plugins"          default="true"/>     <!-- To avoid publication of theora or compressedDepth topics -->
+
+  <!-- Modules -->
+  <arg name="debayer/enabled"                      default="true"/>
+  <arg name="flip/enabled"                         default="true"/>
+  <arg name="white_balance/enabled"                default="true"/>
+  <arg name="color_calibration/enabled"            default="false"/>
+  <arg name="gamma_correction/enabled"             default="false"/>
+  <arg name="vignetting_correction/enabled"        default="false"/>
+  <arg name="color_enhancer/enabled"               default="false"/>
+  <arg name="undistortion/enabled"                 default="true"/>
+
+  <!-- Camera -->
+  <!-- Debayer  -->
+  <arg name="debayer_encoding"                     default="auto"/>  <!-- auto, bayer_bggr8, bayer_gbrg8, bayer_grbg8, bayer_rggb8-->
+   <!-- Flip  -->
+  <arg name="flip/angle"                           default="0"/>  <!-- 90 (clockwise), 180, 270 (counter-clockwise) -->
+  <!-- White balance options -->
+  <arg name="white_balance/method"                 default="ccc"/> <!-- simple, grey_world, learned, ccc, pca -->
+  <arg name="white_balance/clipping_percentile"    default="10."/>  <!-- simple WB, values [0-100]-->
+  <arg name="white_balance/saturation_bright_thr"  default="0.8"/> <!-- grey_world, learned, ccc: [0.0, 1.0] -->
+  <arg name="white_balance/saturation_dark_thr"    default="0.2"/> <!-- ccc-only: [0.0, 1.0] -->
+  <arg name="white_balance/temporal_consistency"   default="false"/>  <!-- ccc-only: uses a Kalman filter to track the illuminant estimate -->
+  <!-- Color calibration -->
+  <arg name="color_calibration/calibration_file"  default="$(find-pkg-share raw_image_pipeline)/config/alphasense_color_calib_example.yaml"/>
+  <!-- Gamma correction options -->
+  <arg name="gamma_correction/method"              default="custom"/> <!-- default, custom-->
+  <arg name="gamma_correction/k"                   default="0.9"/> <!-- k >= 1 -> forward gamma (darker); k < 1 -> inverse gamma (brighter)-->
+  <!-- Vignetting correction -->
+  <arg name="vignetting_correction/scale"          default="1.5"/> <!-- Linear term -->
+  <arg name="vignetting_correction/a2"             default="0.001"/> <!-- Quadratic term -->
+  <arg name="vignetting_correction/a4"             default="0.000001"/> <!-- Cubic term -->
+  <!-- HSV color enhancement -->
+  <arg name="color_enhancer/saturation_gain"       default="1.2"/> <!-- gain > 1.0 makes color more vibrant-->
+  <!-- Undistortion -->
+  <arg name="undistortion/balance"                 default="0.5"/> <!-- Balance [0,1] -->
+  <arg name="undistortion/fov_scale"               default="1.2"/> <!-- scale > 1.0 increases the FoV -->
+  <arg name="undistortion/calibration_file"       default="$(find-pkg-share raw_image_pipeline)/config/alphasense_calib_example.yaml"/>
+  
+  <!-- Nodes -->
+  <load_composable_node target="$(var container_name)">
+    <composable_node pkg="raw_image_pipeline_ros" plugin="raw_image_pipeline::RawImagePipelineRos" name="raw_image_pipeline_ros_node_$(var camera_name)">
+      <param name="use_sim_time"                         value="$(var use_sim_time)"/>
+
+      <param name="input_topic"                          value="$(var input_topic)"/>
+      <param name="input_type"                           value="$(var input_type)"/>
+
+      <param name="output_prefix"                       value="$(var output_prefix)"/>
+      <param name="output_encoding"                      value="$(var output_encoding)"/>
+      <param name="output_frame"                         value="$(var output_frame)"/>
+      <param name="skip_number_of_images_for_slow_topic" value="$(var skip_number_of_images_for_slow_topic)"/>
+      <param name="use_gpu"                              value="$(var use_gpu)"/>
+      <param name="debug"                                value="$(var debug)"/>
+      
+      <param name="debayer/enabled"                      value="$(var debayer/enabled)"/>
+      <param name="debayer/encoding"                     value="$(var debayer_encoding)"/>
+
+      <param name="flip/enabled"                         value="$(var flip/enabled)"/>
+      <param name="flip/angle"                           value="$(var flip/angle)"/>
+      
+      <param name="white_balance/enabled"                value="$(var white_balance/enabled)"/>
+      <param name="white_balance/method"                 value="$(var white_balance/method)"/>
+      <param name="white_balance/clipping_percentile"    value="$(var white_balance/clipping_percentile)"/>
+      <param name="white_balance/saturation_bright_thr"  value="$(var white_balance/saturation_bright_thr)"/>
+      <param name="white_balance/saturation_dark_thr"    value="$(var white_balance/saturation_dark_thr)"/>
+      <param name="white_balance/temporal_consistency"   value="$(var white_balance/temporal_consistency)"/>
+      
+      <param name="color_calibration/enabled"            value="$(var color_calibration/enabled)"/>
+      <param name="color_calibration/calibration_file"   value="$(var color_calibration/calibration_file)"/>
+
+      <param name="gamma_correction/enabled"             value="$(var gamma_correction/enabled)"/>
+      <param name="gamma_correction/method"              value="$(var gamma_correction/method)"/>
+      <param name="gamma_correction/k"                   value="$(var gamma_correction/k)"/>
+
+      <param name="vignetting_correction/enabled"        value="$(var vignetting_correction/enabled)"/>
+      <param name="vignetting_correction/scale"          value="$(var vignetting_correction/scale)"/>
+      <param name="vignetting_correction/a2"             value="$(var vignetting_correction/a2)"/>
+      <param name="vignetting_correction/a4"             value="$(var vignetting_correction/a4)"/>
+      
+      <param name="color_enhancer/enabled"               value="$(var color_enhancer/enabled)"/>
+      <param name="color_enhancer/saturation_gain"       value="$(var color_enhancer/saturation_gain)"/>
+      
+      <param name="undistortion/enabled"                 value="$(var undistortion/enabled)"/>
+      <param name="undistortion/balance"                 value="$(var undistortion/balance)"/>
+      <param name="undistortion/fov_scale"               value="$(var undistortion/fov_scale)"/>
+      <param name="undistortion/calibration_file"        value="$(var undistortion/calibration_file)"/>
+
+      <extra_arg name="use_intra_process_comms"          value="true" />
+    </composable_node>
+  </load_composable_node>
+
+</launch>
