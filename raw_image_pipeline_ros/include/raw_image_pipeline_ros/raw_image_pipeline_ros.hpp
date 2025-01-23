@@ -25,9 +25,6 @@ class RawImagePipelineRos : public rclcpp::Node {
   RawImagePipelineRos(const rclcpp::NodeOptions& options);
   ~RawImagePipelineRos();
 
-  // Starts the node
-  bool run();
-
  private:
   // Setup methods
   void loadParams();
@@ -46,9 +43,7 @@ class RawImagePipelineRos : public rclcpp::Node {
       const cv::Mat& distortion_coefficients,  // Distortion
       const cv::Mat& camera_matrix, const cv::Mat& rectification_matrix,
       const cv::Mat& projection_matrix,  //
-      image_transport::CameraPublisher& camera_publisher,
-      image_transport::Publisher& slow_publisher,  //
-      int& skipped_images);
+      image_transport::CameraPublisher& camera_publisher, int& skipped_images);
 
   // Services
   // ROS2HACK
@@ -96,16 +91,12 @@ class RawImagePipelineRos : public rclcpp::Node {
 
   // Debayered publisher
   image_transport::CameraPublisher pub_image_debayered_;
-  image_transport::Publisher pub_image_debayered_slow_;
 
   // Debayered publisher
   image_transport::CameraPublisher pub_image_color_;
-  image_transport::Publisher pub_image_color_slow_;
 
   // Rectified image publisher
   image_transport::CameraPublisher pub_image_rect_;
-  image_transport::Publisher pub_image_rect_mask_;
-  image_transport::Publisher pub_image_rect_slow_;
 
   // Services
   // ROS2HACK
@@ -120,10 +111,10 @@ class RawImagePipelineRos : public rclcpp::Node {
   std::string output_encoding_;
   std::string output_frame_;
 
-  // Slow topic
-  int skip_number_of_images_for_slow_topic_;
-  int skipped_images_for_slow_topic_;
-  int skipped_images_for_slow_topic_rect_;
+  bool pub_debayer_, pub_color_, pub_rect_;
+
+  int skip_number_of_images_;
+  int skipped_images_col_, skipped_images_rec_, skipped_images_deb_;
 
   // Postprocessing pipeline
   std::unique_ptr<RawImagePipeline> raw_image_pipeline_;

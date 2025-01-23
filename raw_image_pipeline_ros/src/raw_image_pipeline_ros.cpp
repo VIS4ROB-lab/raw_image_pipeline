@@ -11,8 +11,9 @@ namespace raw_image_pipeline {
 RawImagePipelineRos::RawImagePipelineRos(
     const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
     : Node("raw_image_pipeline_ros", options),
-      skipped_images_for_slow_topic_(0),
-      skipped_images_for_slow_topic_rect_(0) {
+      skipped_images_col_(0),
+      skipped_images_rec_(0),
+      skipped_images_deb_(0) {
   one_off_timer_ =
       this->create_wall_timer(std::chrono::milliseconds(1), [this]() {
         loadParams();
@@ -26,8 +27,11 @@ RawImagePipelineRos::~RawImagePipelineRos() {}
 void RawImagePipelineRos::loadParams() {
   // Topic options
   readRequiredParameter("input_topic", input_topic_);
-  readRequiredParameter("input_type", input_type_);
   readRequiredParameter("output_prefix", output_prefix_);
+
+  pub_debayer_ = readParameter("publish_debayer", false);
+  pub_color_ = readParameter("publish_color", false);
+  pub_rect_ = readParameter("publish_rect", false);
 
   image_transport_ =
       std::make_shared<image_transport::ImageTransport>(shared_from_this());
@@ -38,8 +42,7 @@ void RawImagePipelineRos::loadParams() {
   // Other parameters
   output_encoding_ = readParameter("output_encoding", std::string("BGR"));
   output_frame_ = readParameter("output_frame", std::string("passthrough"));
-  skip_number_of_images_for_slow_topic_ =
-      readParameter("skip_number_of_images_for_slow_topic", -1);
+  skip_number_of_images_ = readParameter("skip_number_of_images", -1);
 
   // Read GPU parameter and initialize image proc
   bool use_gpu = readParameter("use_gpu", true);
@@ -231,8 +234,6 @@ void RawImagePipelineRos::setupRos() {
       1u;  // We always process the most updated frame
 
   // Set up the raw image subscriber.
-  // std::function<void(const sensor_msgs::ImageConstPtr&)> image_callback =
-  // std::bind(&RawImagePipelineRos::imageCallback, this, _1);
 
   auto transport_hint =
       std::make_shared<image_transport::TransportHints>(this, transport_);
@@ -246,53 +247,34 @@ void RawImagePipelineRos::setupRos() {
   );
 
   // Set up the processed image publisher.
-  if (raw_image_pipeline_->isUndistortionEnabled()) {
+  if (raw_image_pipeline_->isUndistortionEnabled() && pub_rect_) {
     pub_image_rect_ = image_transport_->advertiseCamera(
-        output_prefix_ + "/" + input_type_ + "_rect/image", ros_queue_size);
-    if (skip_number_of_images_for_slow_topic_ > 0) {
-      pub_image_rect_slow_ = image_transport_->advertise(
-          output_prefix_ + "/" + input_type_ + "_rect/image/slow",
-          ros_queue_size);
-    }
+        output_prefix_ + "/rectified/image", ros_queue_size);
   }
 
-  if (raw_image_pipeline_->isDebayerEnabled()) {
+  if (raw_image_pipeline_->isDebayerEnabled() && pub_debayer_) {
     pub_image_debayered_ = image_transport_->advertiseCamera(
         output_prefix_ + "/debayered/image", ros_queue_size);
-    if (skip_number_of_images_for_slow_topic_ > 0) {
-      pub_image_debayered_slow_ = image_transport_->advertise(
-          output_prefix_ + "/debayered/slow", ros_queue_size);
-    }
   }
 
-  if (raw_image_pipeline_->isFlipEnabled() ||
-      raw_image_pipeline_->isWhiteBalanceEnabled() ||
-      raw_image_pipeline_->isColorCalibrationEnabled() ||
-      raw_image_pipeline_->isGammaCorrectionEnabled() ||
-      raw_image_pipeline_->isVignettingCorrectionEnabled() ||
-      raw_image_pipeline_->isColorEnhancerEnabled()) {
+  if ((raw_image_pipeline_->isFlipEnabled() ||
+       raw_image_pipeline_->isWhiteBalanceEnabled() ||
+       raw_image_pipeline_->isColorCalibrationEnabled() ||
+       raw_image_pipeline_->isGammaCorrectionEnabled() ||
+       raw_image_pipeline_->isVignettingCorrectionEnabled() ||
+       raw_image_pipeline_->isColorEnhancerEnabled()) &&
+      pub_color_) {
     pub_image_color_ = image_transport_->advertiseCamera(
         output_prefix_ + "/color/image", ros_queue_size);
-    if (skip_number_of_images_for_slow_topic_ > 0) {
-      pub_image_color_slow_ = image_transport_->advertise(
-          output_prefix_ + "/color/slow", ros_queue_size);
-    }
   }
 
-  // Setup service calls
-  // reset_wb_temporal_consistency_server_ =
-  //     this.advertiseService("reset_white_balance",
-  //     &RawImagePipelineRos::resetWhiteBalanceHandler, this);
 }  // namespace raw_image_pipeline
 
 void RawImagePipelineRos::imageCallback(
     const sensor_msgs::msg::Image::ConstSharedPtr& image_msg) {
-  bool rect_subs = pub_image_rect_.getNumSubscribers() > 0 ||
-                   pub_image_rect_slow_.getNumSubscribers() > 0;
-  bool debayer_subs = pub_image_debayered_.getNumSubscribers() > 0 ||
-                      pub_image_debayered_slow_.getNumSubscribers() > 0;
-  bool colour_subs = pub_image_color_.getNumSubscribers() > 0 ||
-                     pub_image_color_slow_.getNumSubscribers() > 0;
+  bool rect_subs = pub_image_rect_.getNumSubscribers() > 0;
+  bool debayer_subs = pub_image_debayered_.getNumSubscribers() > 0;
+  bool colour_subs = pub_image_color_.getNumSubscribers() > 0;
 
   // early return if there is no subscribers
   if (!rect_subs && !debayer_subs && !colour_subs) {
@@ -320,7 +302,7 @@ void RawImagePipelineRos::imageCallback(
                              cv_ptr_processed->encoding);
 
   // Publish undistorted only when there is a subscriber
-  if (raw_image_pipeline_->isUndistortionEnabled() && rect_subs) {
+  if (raw_image_pipeline_->isUndistortionEnabled() && pub_rect_ && rect_subs) {
     // Publish undistorted
     publishColorImage(
         cv_ptr_processed,  // Processed
@@ -333,13 +315,13 @@ void RawImagePipelineRos::imageCallback(
         raw_image_pipeline_->getRectCameraMatrix(),
         raw_image_pipeline_->getRectRectificationMatrix(),
         raw_image_pipeline_->getRectProjectionMatrix(),  // Pinhole stuff
-        pub_image_rect_, pub_image_rect_slow_,           // Publishers
-        skipped_images_for_slow_topic_rect_  // Counter to keep track of the
-                                             // number of skipped images
+        pub_image_rect_,                                 // Publishers
+        skipped_images_rec_  // Counter to keep track of the
+                             // number of skipped images
     );
   }
 
-  if (debayer_subs) {
+  if (raw_image_pipeline_->isDebayerEnabled() && pub_debayer_ && debayer_subs) {
     // Publish debayered image
     cv_ptr_processed->image = raw_image_pipeline_->getDistDebayeredImage();
     publishColorImage(
@@ -352,14 +334,20 @@ void RawImagePipelineRos::imageCallback(
             ->getDistDistortionCoefficients(),  // Distortion stuff
         raw_image_pipeline_->getDistCameraMatrix(),
         raw_image_pipeline_->getDistRectificationMatrix(),
-        raw_image_pipeline_->getDistProjectionMatrix(),   // Pinhole stuff
-        pub_image_debayered_, pub_image_debayered_slow_,  // Publishers
-        skipped_images_for_slow_topic_  // Counter to keep track of the
-                                        // skipped images
+        raw_image_pipeline_->getDistProjectionMatrix(),  // Pinhole stuff
+        pub_image_debayered_,                            // Publishers
+        skipped_images_deb_  // Counter to keep track of the
+                             // skipped images
     );
   }
 
-  if (colour_subs) {
+  if ((raw_image_pipeline_->isFlipEnabled() ||
+       raw_image_pipeline_->isWhiteBalanceEnabled() ||
+       raw_image_pipeline_->isColorCalibrationEnabled() ||
+       raw_image_pipeline_->isGammaCorrectionEnabled() ||
+       raw_image_pipeline_->isVignettingCorrectionEnabled() ||
+       raw_image_pipeline_->isColorEnhancerEnabled()) &&
+      pub_color_ && colour_subs) {
     // Publish color image
     cv_ptr_processed->image = raw_image_pipeline_->getDistColorImage();
     publishColorImage(
@@ -373,9 +361,9 @@ void RawImagePipelineRos::imageCallback(
         raw_image_pipeline_->getDistCameraMatrix(),
         raw_image_pipeline_->getDistRectificationMatrix(),
         raw_image_pipeline_->getDistProjectionMatrix(),  // Pinhole stuff
-        pub_image_color_, pub_image_color_slow_,         // Publishers
-        skipped_images_for_slow_topic_  // Counter to keep track of the
-                                        // skipped images
+        pub_image_color_,                                // Publishers
+        skipped_images_col_  // Counter to keep track of the
+                             // skipped images
     );
   }
 }
@@ -389,8 +377,7 @@ void RawImagePipelineRos::publishColorImage(
     const cv::Mat& camera_matrix, const cv::Mat& rectification_matrix,
     const cv::Mat& projection_matrix,  //
     image_transport::CameraPublisher& camera_publisher,
-    image_transport::Publisher& slow_publisher,  //
-    int& skipped_images                          //
+    int& skipped_images  //
 ) {
   // Note: Image is BGR
   // Convert image to output encoding
@@ -450,12 +437,10 @@ void RawImagePipelineRos::publishColorImage(
 
   // Assign the original timestamp and publish
   color_img_msg->header.stamp = orig_image->header.stamp;
-  camera_publisher.publish(color_img_msg, color_camera_info_msg);
 
-  // Publish to slow topic
-  if (skipped_images >= skip_number_of_images_for_slow_topic_ &&
-      skip_number_of_images_for_slow_topic_ > 0) {
-    slow_publisher.publish(color_img_msg);
+  // Publish to topic
+  if (skipped_images >= skip_number_of_images_) {
+    camera_publisher.publish(color_img_msg, color_camera_info_msg);
     skipped_images = 0;
   } else {
     skipped_images++;

@@ -6,7 +6,6 @@
 
   <arg name="camera_name"                          default="cam0"/>
   <arg name="input_topic"                          default="alphasense_driver_ros/cam0"/>
-  <arg name="input_type"                           default="color"/>
 
   <arg name="output_prefix"                       default="alphasense_driver_ros/cam0"/>
   <arg name="output_frame"                         default="cam0_sensor_frame_helper"/>
@@ -14,11 +13,15 @@
   <arg name="launch_prefix"                        default=""/>
   
   <arg name="output_encoding"                      default="BGR"/>   <!-- Format of the published image BGR and RGB supported-->
-  <arg name="skip_number_of_images_for_slow_topic" default="5"/>     <!-- To publish images at a slower rate -->
+  <arg name="skip_number_of_images"                default="0"/>     <!-- To publish images at a slower rate -->
   <arg name="use_gpu"                              default="false"/>     <!-- To publish images at a slower rate -->
   <arg name="debug"                                default="false"/> <!-- to export debug data to /tmp -->
 
   <arg name="disable_compression_plugins"          default="true"/>     <!-- To avoid publication of theora or compressedDepth topics -->
+
+  <arg name="publish_debayer"                      default="false"/>
+  <arg name="publish_color"                        default="false"/>
+  <arg name="publish_rect"                         default="true"/>
 
   <!-- Modules -->
   <arg name="debayer/enabled"                      default="true"/>
@@ -55,7 +58,7 @@
   <!-- Undistortion -->
   <arg name="undistortion/balance"                 default="0.5"/> <!-- Balance [0,1] -->
   <arg name="undistortion/fov_scale"               default="1.2"/> <!-- scale > 1.0 increases the FoV -->
-  <arg name="undistortion/calibration_file"       default="$(find-pkg-share raw_image_pipeline)/config/alphasense_calib_example.yaml"/>
+  <arg name="undistortion/calibration_file"        default="$(find-pkg-share raw_image_pipeline)/config/alphasense_calib_example.yaml"/>
   
   <!-- Nodes -->
   <load_composable_node target="$(var container_name)">
@@ -63,12 +66,15 @@
       <param name="use_sim_time"                         value="$(var use_sim_time)"/>
 
       <param name="input_topic"                          value="$(var input_topic)"/>
-      <param name="input_type"                           value="$(var input_type)"/>
 
-      <param name="output_prefix"                       value="$(var output_prefix)"/>
+      <param name="publish_debayer"                      value="$(var publish_debayer)"/>
+      <param name="publish_color"                        value="$(var publish_color)"/>
+      <param name="publish_rect"                         value="$(var publish_rect)"/>
+
+      <param name="output_prefix"                        value="$(var output_prefix)"/>
       <param name="output_encoding"                      value="$(var output_encoding)"/>
       <param name="output_frame"                         value="$(var output_frame)"/>
-      <param name="skip_number_of_images_for_slow_topic" value="$(var skip_number_of_images_for_slow_topic)"/>
+      <param name="skip_number_of_images"                value="$(var skip_number_of_images)"/>
       <param name="use_gpu"                              value="$(var use_gpu)"/>
       <param name="debug"                                value="$(var debug)"/>
       
