@@ -10,10 +10,7 @@ namespace raw_image_pipeline {
 
 RawImagePipelineRos::RawImagePipelineRos(
     const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
-    : Node("raw_image_pipeline_ros", options),
-      skipped_images_col_(0),
-      skipped_images_rec_(0),
-      skipped_images_deb_(0) {
+    : Node("raw_image_pipeline_ros", options), skipped_images_(0) {
   one_off_timer_ =
       this->create_wall_timer(std::chrono::milliseconds(1), [this]() {
         loadParams();
@@ -276,6 +273,13 @@ void RawImagePipelineRos::imageCallback(
   bool debayer_subs = pub_image_debayered_.getNumSubscribers() > 0;
   bool colour_subs = pub_image_color_.getNumSubscribers() > 0;
 
+  if (skipped_images_ >= skip_number_of_images_) {
+    skipped_images_ = 0;
+  } else {
+    skipped_images_++;
+    return;
+  }
+
   // early return if there is no subscribers
   if (!rect_subs && !debayer_subs && !colour_subs) {
     return;
@@ -315,9 +319,7 @@ void RawImagePipelineRos::imageCallback(
         raw_image_pipeline_->getRectCameraMatrix(),
         raw_image_pipeline_->getRectRectificationMatrix(),
         raw_image_pipeline_->getRectProjectionMatrix(),  // Pinhole stuff
-        pub_image_rect_,                                 // Publishers
-        skipped_images_rec_  // Counter to keep track of the
-                             // number of skipped images
+        pub_image_rect_                                  // Publishers
     );
   }
 
@@ -335,9 +337,7 @@ void RawImagePipelineRos::imageCallback(
         raw_image_pipeline_->getDistCameraMatrix(),
         raw_image_pipeline_->getDistRectificationMatrix(),
         raw_image_pipeline_->getDistProjectionMatrix(),  // Pinhole stuff
-        pub_image_debayered_,                            // Publishers
-        skipped_images_deb_  // Counter to keep track of the
-                             // skipped images
+        pub_image_debayered_                             // Publishers
     );
   }
 
@@ -361,9 +361,7 @@ void RawImagePipelineRos::imageCallback(
         raw_image_pipeline_->getDistCameraMatrix(),
         raw_image_pipeline_->getDistRectificationMatrix(),
         raw_image_pipeline_->getDistProjectionMatrix(),  // Pinhole stuff
-        pub_image_color_,                                // Publishers
-        skipped_images_col_  // Counter to keep track of the
-                             // skipped images
+        pub_image_color_                                 // Publishers
     );
   }
 }
@@ -376,9 +374,7 @@ void RawImagePipelineRos::publishColorImage(
     const cv::Mat& distortion_coefficients,  //
     const cv::Mat& camera_matrix, const cv::Mat& rectification_matrix,
     const cv::Mat& projection_matrix,  //
-    image_transport::CameraPublisher& camera_publisher,
-    int& skipped_images  //
-) {
+    image_transport::CameraPublisher& camera_publisher) {
   // Note: Image is BGR
   // Convert image to output encoding
   if (output_encoding_ == "RGB") {
@@ -439,12 +435,7 @@ void RawImagePipelineRos::publishColorImage(
   color_img_msg->header.stamp = orig_image->header.stamp;
 
   // Publish to topic
-  if (skipped_images >= skip_number_of_images_) {
-    camera_publisher.publish(color_img_msg, color_camera_info_msg);
-    skipped_images = 0;
-  } else {
-    skipped_images++;
-  }
+  camera_publisher.publish(color_img_msg, color_camera_info_msg);
 }
 
 std::string RawImagePipelineRos::getTransportHintFromTopic(

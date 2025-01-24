@@ -43,7 +43,7 @@ class RawImagePipelineRos : public rclcpp::Node {
       const cv::Mat& distortion_coefficients,  // Distortion
       const cv::Mat& camera_matrix, const cv::Mat& rectification_matrix,
       const cv::Mat& projection_matrix,  //
-      image_transport::CameraPublisher& camera_publisher, int& skipped_images);
+      image_transport::CameraPublisher& camera_publisher);
 
   // Services
   // ROS2HACK
@@ -113,8 +113,8 @@ class RawImagePipelineRos : public rclcpp::Node {
 
   bool pub_debayer_, pub_color_, pub_rect_;
 
+  int skipped_images_;
   int skip_number_of_images_;
-  int skipped_images_col_, skipped_images_rec_, skipped_images_deb_;
 
   // Postprocessing pipeline
   std::unique_ptr<RawImagePipeline> raw_image_pipeline_;
