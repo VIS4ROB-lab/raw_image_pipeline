@@ -36,8 +36,28 @@ TARGET_IMAGE_SIZE = (
 )
 
 # ArUco stuff
-aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_50)
-aruco_params = aruco.DetectorParameters_create()
+# OpenCV changed parts of the ArUco API in newer versions.
+if hasattr(aruco, "getPredefinedDictionary"):
+    aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
+else:
+    aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_50)
+
+if hasattr(aruco, "DetectorParameters"):
+    aruco_params = aruco.DetectorParameters()
+else:
+    aruco_params = aruco.DetectorParameters_create()
+
+
+def detect_aruco_markers(image: np.array):
+    """Detect ArUco markers across OpenCV ArUco API versions."""
+    if hasattr(aruco, "detectMarkers"):
+        return aruco.detectMarkers(image, aruco_dict, parameters=aruco_params)
+
+    # Newer OpenCV uses ArucoDetector class.
+    detector = aruco.ArucoDetector(aruco_dict, aruco_params)
+    return detector.detectMarkers(image)
+
+
 aruco_target_pts = np.array(
     [
         [0, 0],
@@ -100,13 +120,13 @@ def apply_color_correction(color_correction: np.matrix, img: np.array) -> np.arr
 
 def get_color_centroids(img: np.array, dim=COLOR_CHECKER_DIM) -> np.array:
     # Compute ARUCO coordinates
-    aruco_corners, ids, _ = aruco.detectMarkers(img, aruco_dict, parameters=aruco_params)
+    aruco_corners, ids, _ = detect_aruco_markers(img)
     frame_markers = aruco.drawDetectedMarkers(img.copy(), aruco_corners, ids)
 
     if len(aruco_corners) != 4:
         kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
         sharp_img = cv2.filter2D(img, -1, kernel)
-        aruco_corners, ids, _ = aruco.detectMarkers(sharp_img, aruco_dict, parameters=aruco_params)
+        aruco_corners, ids, _ = detect_aruco_markers(sharp_img)
         frame_markers = aruco.drawDetectedMarkers(sharp_img.copy(), aruco_corners, ids)
 
         if len(aruco_corners) != 4:
